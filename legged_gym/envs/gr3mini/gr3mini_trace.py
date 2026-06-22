@@ -6,6 +6,7 @@ import os
 
 import numpy as np
 import torch
+from isaacgym import gymtorch
 from isaacgym.torch_utils import quat_rotate_inverse, torch_rand_float, to_torch
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
@@ -79,6 +80,10 @@ class GR3MiniTrace(LeggedRobot):
     def _init_buffers(self):
         super()._init_buffers()
 
+        rigid_body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.rigid_body_state = gymtorch.wrap_tensor(rigid_body_state).view(self.num_envs, self.num_bodies, 13)
+
         self._prepare_motion_tensors()
         self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
         self.motion_frame_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
@@ -92,6 +97,7 @@ class GR3MiniTrace(LeggedRobot):
         self.motion_phase = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self._update_reference(torch.arange(self.num_envs, device=self.device))
         self._init_episode_metrics()
+        self._init_termination_buffers()
 
     def _init_episode_metrics(self):
         metric_names = [
@@ -103,11 +109,21 @@ class GR3MiniTrace(LeggedRobot):
             "metric_action_abs",
             "metric_torque_abs",
             "metric_base_height",
+            "metric_foot_slip",
         ]
         self.episode_metric_sums = {
             name: torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
             for name in metric_names
         }
+
+    def _init_termination_buffers(self):
+        self.termination_base_contact = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device, requires_grad=False)
+        self.termination_low_height = torch.zeros_like(self.termination_base_contact)
+        self.termination_bad_orientation = torch.zeros_like(self.termination_base_contact)
+        self.termination_root_pos = torch.zeros_like(self.termination_base_contact)
+        self.termination_joint_pos = torch.zeros_like(self.termination_base_contact)
+        self.termination_foot_slip = torch.zeros_like(self.termination_base_contact)
+        self.termination_bad_velocity = torch.zeros_like(self.termination_base_contact)
 
     def _prepare_motion_tensors(self):
         first_joint_names = self._motion_cpu[0]["joint_names"]
@@ -224,13 +240,71 @@ class GR3MiniTrace(LeggedRobot):
         metric_means = {}
         for name, metric_sum in self.episode_metric_sums.items():
             metric_means[name] = torch.mean(metric_sum[env_ids] / episode_lengths)
+        termination_rates = {
+            "term_base_contact": torch.mean(self.termination_base_contact[env_ids].float()),
+            "term_low_height": torch.mean(self.termination_low_height[env_ids].float()),
+            "term_bad_orientation": torch.mean(self.termination_bad_orientation[env_ids].float()),
+            "term_root_pos": torch.mean(self.termination_root_pos[env_ids].float()),
+            "term_joint_pos": torch.mean(self.termination_joint_pos[env_ids].float()),
+            "term_foot_slip": torch.mean(self.termination_foot_slip[env_ids].float()),
+            "term_bad_velocity": torch.mean(self.termination_bad_velocity[env_ids].float()),
+            "term_timeout": torch.mean(self.time_out_buf[env_ids].float()),
+        }
 
         super().reset_idx(env_ids)
 
         episode_extras = self.extras.setdefault("episode", {})
         episode_extras.update(metric_means)
+        episode_extras.update(termination_rates)
         for metric_sum in self.episode_metric_sums.values():
             metric_sum[env_ids] = 0.0
+        self.termination_base_contact[env_ids] = False
+        self.termination_low_height[env_ids] = False
+        self.termination_bad_orientation[env_ids] = False
+        self.termination_root_pos[env_ids] = False
+        self.termination_joint_pos[env_ids] = False
+        self.termination_foot_slip[env_ids] = False
+        self.termination_bad_velocity[env_ids] = False
+
+    def check_termination(self):
+        cfg = self.cfg.termination
+        root_pos = self.root_states[:, :3] - self.env_origins
+        root_pos_err = torch.norm(root_pos - self.ref_root_pos, dim=1)
+        joint_pos_rmse = torch.sqrt(torch.mean(torch.square(self.dof_pos - self.ref_dof_pos), dim=1))
+
+        self.termination_base_contact = torch.any(
+            torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > cfg.contact_force,
+            dim=1,
+        )
+        self.termination_low_height = root_pos[:, 2] < cfg.min_base_height
+        self.termination_bad_orientation = torch.norm(self.projected_gravity[:, :2], dim=1) > cfg.max_projected_gravity_xy
+        self.termination_root_pos = root_pos_err > cfg.max_root_pos_error
+        self.termination_joint_pos = joint_pos_rmse > cfg.max_joint_pos_rmse
+
+        if len(self.feet_indices) > 0:
+            self.gym.refresh_rigid_body_state_tensor(self.sim)
+            feet_contact = self.contact_forces[:, self.feet_indices, 2] > cfg.foot_contact_force
+            feet_xy_speed = torch.norm(self.rigid_body_state[:, self.feet_indices, 7:9], dim=-1)
+            self.termination_foot_slip = torch.any(feet_contact & (feet_xy_speed > cfg.max_foot_slip_speed), dim=1)
+        else:
+            self.termination_foot_slip[:] = False
+
+        base_lin_vel_bad = torch.norm(self.base_lin_vel, dim=1) > cfg.max_base_lin_vel
+        base_ang_vel_bad = torch.norm(self.base_ang_vel, dim=1) > cfg.max_base_ang_vel
+        dof_vel_bad = torch.any(torch.abs(self.dof_vel) > cfg.max_dof_vel, dim=1)
+        self.termination_bad_velocity = base_lin_vel_bad | base_ang_vel_bad | dof_vel_bad
+
+        self.time_out_buf = self.episode_length_buf > self.max_episode_length
+        self.reset_buf = (
+            self.termination_base_contact
+            | self.termination_low_height
+            | self.termination_bad_orientation
+            | self.termination_root_pos
+            | self.termination_joint_pos
+            | self.termination_foot_slip
+            | self.termination_bad_velocity
+            | self.time_out_buf
+        )
 
     def _post_physics_step_callback(self):
         self._advance_motion()
@@ -289,6 +363,7 @@ class GR3MiniTrace(LeggedRobot):
         self.episode_metric_sums["metric_action_abs"] += torch.mean(torch.abs(self.actions), dim=1)
         self.episode_metric_sums["metric_torque_abs"] += torch.mean(torch.abs(self.torques), dim=1)
         self.episode_metric_sums["metric_base_height"] += self.root_states[:, 2] - self.env_origins[:, 2]
+        self.episode_metric_sums["metric_foot_slip"] += self.termination_foot_slip.float()
 
     @staticmethod
     def gymtorch_unwrap(tensor):

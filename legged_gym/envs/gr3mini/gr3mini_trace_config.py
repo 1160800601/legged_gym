@@ -29,6 +29,18 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
         dof_pos_noise = 0.02
         dof_vel_noise = 0.05
 
+    class termination:
+        contact_force = 1.0
+        min_base_height = 0.35
+        max_projected_gravity_xy = 0.75
+        max_root_pos_error = 0.8
+        max_joint_pos_rmse = 0.9
+        foot_contact_force = 1.0
+        max_foot_slip_speed = 2.0
+        max_base_lin_vel = 5.0
+        max_base_ang_vel = 10.0
+        max_dof_vel = 50.0
+
     class init_state(LeggedRobotCfg.init_state):
         pos = [0.0, 0.0, 0.62]
         default_joint_angles = {
