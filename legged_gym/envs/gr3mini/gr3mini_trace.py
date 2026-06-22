@@ -91,6 +91,23 @@ class GR3MiniTrace(LeggedRobot):
         self.ref_projected_gravity = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.motion_phase = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self._update_reference(torch.arange(self.num_envs, device=self.device))
+        self._init_episode_metrics()
+
+    def _init_episode_metrics(self):
+        metric_names = [
+            "metric_joint_pos_rmse",
+            "metric_joint_vel_rmse",
+            "metric_root_pos_err",
+            "metric_root_orientation_err",
+            "metric_root_lin_vel_err",
+            "metric_action_abs",
+            "metric_torque_abs",
+            "metric_base_height",
+        ]
+        self.episode_metric_sums = {
+            name: torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+            for name in metric_names
+        }
 
     def _prepare_motion_tensors(self):
         first_joint_names = self._motion_cpu[0]["joint_names"]
@@ -199,6 +216,22 @@ class GR3MiniTrace(LeggedRobot):
             self.sim, self.gymtorch_unwrap(self.root_states), self.gymtorch_unwrap(env_ids_int32), len(env_ids_int32)
         )
 
+    def reset_idx(self, env_ids):
+        if len(env_ids) == 0:
+            return
+
+        episode_lengths = torch.clamp(self.episode_length_buf[env_ids].float(), min=1.0)
+        metric_means = {}
+        for name, metric_sum in self.episode_metric_sums.items():
+            metric_means[name] = torch.mean(metric_sum[env_ids] / episode_lengths)
+
+        super().reset_idx(env_ids)
+
+        episode_extras = self.extras.setdefault("episode", {})
+        episode_extras.update(metric_means)
+        for metric_sum in self.episode_metric_sums.values():
+            metric_sum[env_ids] = 0.0
+
     def _post_physics_step_callback(self):
         self._advance_motion()
 
@@ -233,6 +266,29 @@ class GR3MiniTrace(LeggedRobot):
     def _get_noise_scale_vec(self, cfg):
         self.add_noise = False
         return torch.zeros_like(self.obs_buf[0])
+
+    def compute_reward(self):
+        super().compute_reward()
+        self._accumulate_episode_metrics()
+
+    def _accumulate_episode_metrics(self):
+        root_pos = self.root_states[:, :3] - self.env_origins
+        self.episode_metric_sums["metric_joint_pos_rmse"] += torch.sqrt(
+            torch.mean(torch.square(self.dof_pos - self.ref_dof_pos), dim=1)
+        )
+        self.episode_metric_sums["metric_joint_vel_rmse"] += torch.sqrt(
+            torch.mean(torch.square(self.dof_vel - self.ref_dof_vel), dim=1)
+        )
+        self.episode_metric_sums["metric_root_pos_err"] += torch.norm(root_pos - self.ref_root_pos, dim=1)
+        self.episode_metric_sums["metric_root_orientation_err"] += torch.norm(
+            self.projected_gravity - self.ref_projected_gravity, dim=1
+        )
+        self.episode_metric_sums["metric_root_lin_vel_err"] += torch.norm(
+            self.base_lin_vel[:, :2] - self.ref_root_lin_vel[:, :2], dim=1
+        )
+        self.episode_metric_sums["metric_action_abs"] += torch.mean(torch.abs(self.actions), dim=1)
+        self.episode_metric_sums["metric_torque_abs"] += torch.mean(torch.abs(self.torques), dim=1)
+        self.episode_metric_sums["metric_base_height"] += self.root_states[:, 2] - self.env_origins[:, 2]
 
     @staticmethod
     def gymtorch_unwrap(tensor):
