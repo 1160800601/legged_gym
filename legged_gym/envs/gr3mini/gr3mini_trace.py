@@ -1,0 +1,266 @@
+# SPDX-License-Identifier: BSD-3-Clause
+
+import csv
+import glob
+import os
+
+import numpy as np
+import torch
+from isaacgym.torch_utils import quat_rotate_inverse, torch_rand_float, to_torch
+
+from legged_gym import LEGGED_GYM_ROOT_DIR
+from legged_gym.envs.base.legged_robot import LeggedRobot
+
+
+class GR3MiniTrace(LeggedRobot):
+    """GR3 mini reference motion tracking task.
+
+    The policy action is interpreted as a residual on top of the current
+    reference joint position from the CSV motion file.
+    """
+
+    def __init__(self, cfg, sim_params, physics_engine, sim_device, headless):
+        self._motion_cpu = self._load_motion_files(cfg)
+        super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
+
+    def _load_motion_files(self, cfg):
+        trace_dir = cfg.motion.trace_dir.format(LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR)
+        pattern = os.path.join(trace_dir, cfg.motion.file_pattern)
+        files = sorted(glob.glob(pattern))
+        if not files:
+            raise FileNotFoundError(f"No motion trace files matched: {pattern}")
+
+        motions = []
+        expected_header = None
+        for path in files:
+            with open(path, newline="") as f:
+                reader = csv.DictReader(f)
+                header = reader.fieldnames
+                if expected_header is None:
+                    expected_header = header
+                elif header != expected_header:
+                    raise ValueError(f"CSV header mismatch in {path}")
+
+                rows = list(reader)
+            if len(rows) < 2:
+                raise ValueError(f"Motion trace must have at least two frames: {path}")
+
+            joint_names = [name[:-4] for name in header if name.endswith("_dof")]
+            root_pos = np.array(
+                [[float(r["root_translateX"]), float(r["root_translateY"]), float(r["root_translateZ"])] for r in rows],
+                dtype=np.float32,
+            )
+            # CSV stores WXYZ, Isaac Gym root states use XYZW.
+            root_quat = np.array(
+                [[float(r["root_quatX"]), float(r["root_quatY"]), float(r["root_quatZ"]), float(r["root_quatW"])] for r in rows],
+                dtype=np.float32,
+            )
+            dof_pos = np.array([[float(r[f"{name}_dof"]) for name in joint_names] for r in rows], dtype=np.float32)
+            dt = cfg.motion.frame_dt
+            dof_vel = np.gradient(dof_pos, dt, axis=0).astype(np.float32)
+            root_lin_vel = np.gradient(root_pos, dt, axis=0).astype(np.float32)
+            root_ang_vel = np.zeros_like(root_lin_vel, dtype=np.float32)
+
+            motions.append(
+                {
+                    "path": path,
+                    "joint_names": joint_names,
+                    "root_pos": root_pos,
+                    "root_quat": root_quat,
+                    "root_lin_vel": root_lin_vel,
+                    "root_ang_vel": root_ang_vel,
+                    "dof_pos": dof_pos,
+                    "dof_vel": dof_vel,
+                }
+            )
+
+        return motions
+
+    def _init_buffers(self):
+        super()._init_buffers()
+
+        self._prepare_motion_tensors()
+        self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
+        self.motion_frame_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
+        self.ref_root_pos = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.ref_root_quat = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False)
+        self.ref_root_lin_vel = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.ref_root_ang_vel = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.ref_dof_pos = self.default_dof_pos.repeat(self.num_envs, 1).clone()
+        self.ref_dof_vel = torch.zeros_like(self.dof_vel)
+        self.ref_projected_gravity = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.motion_phase = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self._update_reference(torch.arange(self.num_envs, device=self.device))
+
+    def _prepare_motion_tensors(self):
+        first_joint_names = self._motion_cpu[0]["joint_names"]
+        joint_to_col = {name: i for i, name in enumerate(first_joint_names)}
+        missing = [name for name in self.dof_names if name not in joint_to_col]
+        if missing:
+            raise ValueError(
+                "Motion trace does not contain all robot DOFs. Missing columns for: "
+                + ", ".join(f"{name}_dof" for name in missing)
+            )
+
+        starts = []
+        lengths = []
+        root_pos = []
+        root_quat = []
+        root_lin_vel = []
+        root_ang_vel = []
+        dof_pos = []
+        dof_vel = []
+        cursor = 0
+        reorder = [joint_to_col[name] for name in self.dof_names]
+        for motion in self._motion_cpu:
+            starts.append(cursor)
+            length = motion["dof_pos"].shape[0]
+            lengths.append(length)
+            cursor += length
+            root_pos.append(motion["root_pos"])
+            root_quat.append(motion["root_quat"])
+            root_lin_vel.append(motion["root_lin_vel"])
+            root_ang_vel.append(motion["root_ang_vel"])
+            dof_pos.append(motion["dof_pos"][:, reorder])
+            dof_vel.append(motion["dof_vel"][:, reorder])
+
+        self.motion_starts = torch.tensor(starts, dtype=torch.long, device=self.device)
+        self.motion_lengths = torch.tensor(lengths, dtype=torch.long, device=self.device)
+        self.motion_root_pos = to_torch(np.concatenate(root_pos, axis=0), device=self.device)
+        self.motion_root_quat = to_torch(np.concatenate(root_quat, axis=0), device=self.device)
+        self.motion_root_lin_vel = to_torch(np.concatenate(root_lin_vel, axis=0), device=self.device)
+        self.motion_root_ang_vel = to_torch(np.concatenate(root_ang_vel, axis=0), device=self.device)
+        self.motion_dof_pos = to_torch(np.concatenate(dof_pos, axis=0), device=self.device)
+        self.motion_dof_vel = to_torch(np.concatenate(dof_vel, axis=0), device=self.device)
+        self.num_motions = len(starts)
+
+    def _sample_motion_frames(self, env_ids):
+        self.motion_ids[env_ids] = torch.randint(self.num_motions, (len(env_ids),), device=self.device)
+        lengths = self.motion_lengths[self.motion_ids[env_ids]]
+        if self.cfg.motion.random_start:
+            self.motion_frame_ids[env_ids] = torch.floor(torch.rand(len(env_ids), device=self.device) * lengths.float()).long()
+        else:
+            self.motion_frame_ids[env_ids] = 0
+
+    def _motion_global_indices(self, env_ids):
+        return self.motion_starts[self.motion_ids[env_ids]] + self.motion_frame_ids[env_ids]
+
+    def _update_reference(self, env_ids=None):
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        if len(env_ids) == 0:
+            return
+
+        idx = self._motion_global_indices(env_ids)
+        self.ref_root_pos[env_ids] = self.motion_root_pos[idx]
+        self.ref_root_quat[env_ids] = self.motion_root_quat[idx]
+        self.ref_root_lin_vel[env_ids] = self.motion_root_lin_vel[idx]
+        self.ref_root_ang_vel[env_ids] = self.motion_root_ang_vel[idx]
+        self.ref_dof_pos[env_ids] = self.motion_dof_pos[idx]
+        self.ref_dof_vel[env_ids] = self.motion_dof_vel[idx]
+        self.ref_projected_gravity[env_ids] = quat_rotate_inverse(self.ref_root_quat[env_ids], self.gravity_vec[env_ids])
+        self.motion_phase[env_ids] = self.motion_frame_ids[env_ids].float() / self.motion_lengths[self.motion_ids[env_ids]].float()
+
+    def _advance_motion(self):
+        self.motion_frame_ids += 1
+        lengths = self.motion_lengths[self.motion_ids]
+        self.motion_frame_ids = torch.remainder(self.motion_frame_ids, lengths)
+        self._update_reference()
+
+    def _reset_dofs(self, env_ids):
+        self._sample_motion_frames(env_ids)
+        self._update_reference(env_ids)
+
+        dof_noise = self.cfg.motion.dof_pos_noise
+        vel_noise = self.cfg.motion.dof_vel_noise
+        self.dof_pos[env_ids] = self.ref_dof_pos[env_ids] + torch_rand_float(
+            -dof_noise, dof_noise, (len(env_ids), self.num_dof), device=self.device
+        )
+        self.dof_vel[env_ids] = self.ref_dof_vel[env_ids] + torch_rand_float(
+            -vel_noise, vel_noise, (len(env_ids), self.num_dof), device=self.device
+        )
+
+        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        self.gym.set_dof_state_tensor_indexed(
+            self.sim, self.gymtorch_unwrap(self.dof_state), self.gymtorch_unwrap(env_ids_int32), len(env_ids_int32)
+        )
+
+    def _reset_root_states(self, env_ids):
+        self.root_states[env_ids] = self.base_init_state
+        self.root_states[env_ids, :3] = self.ref_root_pos[env_ids] + self.env_origins[env_ids]
+        noise = torch.tensor(self.cfg.motion.root_pos_noise, device=self.device)
+        self.root_states[env_ids, :3] += torch_rand_float(-1.0, 1.0, (len(env_ids), 3), device=self.device) * noise
+        self.root_states[env_ids, 3:7] = self.ref_root_quat[env_ids]
+        self.root_states[env_ids, 7:10] = self.ref_root_lin_vel[env_ids]
+        self.root_states[env_ids, 10:13] = self.ref_root_ang_vel[env_ids]
+
+        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim, self.gymtorch_unwrap(self.root_states), self.gymtorch_unwrap(env_ids_int32), len(env_ids_int32)
+        )
+
+    def _post_physics_step_callback(self):
+        self._advance_motion()
+
+    def _compute_torques(self, actions):
+        residual = actions * self.cfg.control.action_scale
+        if self.cfg.control.control_type != "P":
+            return super()._compute_torques(actions)
+        target = self.ref_dof_pos + residual
+        torques = self.p_gains * (target - self.dof_pos) - self.d_gains * self.dof_vel
+        return torch.clip(torques, -self.torque_limits, self.torque_limits)
+
+    def compute_observations(self):
+        phase = torch.stack(
+            (torch.sin(2.0 * torch.pi * self.motion_phase), torch.cos(2.0 * torch.pi * self.motion_phase)), dim=1
+        )
+        root_pos_error = (self.root_states[:, :3] - self.env_origins) - self.ref_root_pos
+        self.obs_buf = torch.cat(
+            (
+                self.base_lin_vel * self.obs_scales.lin_vel,
+                self.base_ang_vel * self.obs_scales.ang_vel,
+                self.projected_gravity,
+                phase,
+                root_pos_error,
+                (self.dof_pos - self.ref_dof_pos) * self.obs_scales.dof_pos,
+                (self.dof_vel - self.ref_dof_vel) * self.obs_scales.dof_vel,
+                self.ref_dof_pos * self.obs_scales.dof_pos,
+                self.actions,
+            ),
+            dim=-1,
+        )
+
+    def _get_noise_scale_vec(self, cfg):
+        self.add_noise = False
+        return torch.zeros_like(self.obs_buf[0])
+
+    @staticmethod
+    def gymtorch_unwrap(tensor):
+        from isaacgym import gymtorch
+
+        return gymtorch.unwrap_tensor(tensor)
+
+    # ------------ reward functions ------------
+    def _reward_tracking_joint_pos(self):
+        err = torch.mean(torch.square(self.dof_pos - self.ref_dof_pos), dim=1)
+        return torch.exp(-err / 0.08)
+
+    def _reward_tracking_joint_vel(self):
+        err = torch.mean(torch.square(self.dof_vel - self.ref_dof_vel), dim=1)
+        return torch.exp(-err / 4.0)
+
+    def _reward_tracking_root_pos(self):
+        root_pos = self.root_states[:, :3] - self.env_origins
+        err = torch.sum(torch.square(root_pos - self.ref_root_pos), dim=1)
+        return torch.exp(-err / 0.05)
+
+    def _reward_tracking_root_orientation(self):
+        err = torch.sum(torch.square(self.projected_gravity - self.ref_projected_gravity), dim=1)
+        return torch.exp(-err / 0.2)
+
+    def _reward_tracking_root_lin_vel(self):
+        err = torch.sum(torch.square(self.base_lin_vel[:, :2] - self.ref_root_lin_vel[:, :2]), dim=1)
+        return torch.exp(-err / 0.5)
+
+    def _reward_alive(self):
+        return torch.ones(self.num_envs, device=self.device)

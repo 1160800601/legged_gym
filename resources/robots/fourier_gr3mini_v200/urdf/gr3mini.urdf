@@ -22,7 +22,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/base_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/base_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="base_material"/>
         </visual>
@@ -41,7 +41,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/torso_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/torso_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="link_material"/>
         </visual>
@@ -60,7 +60,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/waist_yaw_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/waist_yaw_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="blue_material"/>
         </visual>
@@ -73,7 +73,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/head_yaw_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/head_yaw_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="green_material"/>
         </visual>
@@ -86,7 +86,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/head_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/head_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="base_material"/>
         </visual>
@@ -105,7 +105,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_thigh_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_thigh_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="link_material"/>
         </visual>
@@ -118,7 +118,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_thigh_roll_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_thigh_roll_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="blue_material"/>
         </visual>
@@ -131,7 +131,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_thigh_yaw_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_thigh_yaw_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="green_material"/>
         </visual>
@@ -150,7 +150,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_shank_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_shank_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="base_material"/>
         </visual>
@@ -169,7 +169,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_foot_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_foot_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="link_material"/>
         </visual>
@@ -182,7 +182,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_foot_roll_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_foot_roll_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="blue_material"/>
         </visual>
@@ -208,7 +208,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/right_thigh_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/right_thigh_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="green_material"/>
         </visual>
@@ -221,7 +221,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/right_thigh_roll_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/right_thigh_roll_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="base_material"/>
         </visual>
@@ -234,7 +234,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/right_thigh_yaw_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/right_thigh_yaw_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="link_material"/>
         </visual>
@@ -253,7 +253,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/right_shank_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/right_shank_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="blue_material"/>
         </visual>
@@ -272,7 +272,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/right_foot_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/right_foot_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="green_material"/>
         </visual>
@@ -285,7 +285,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/right_foot_roll_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/right_foot_roll_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="base_material"/>
         </visual>
@@ -311,7 +311,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_upper_arm_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_upper_arm_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="link_material"/>
         </visual>
@@ -324,7 +324,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_upper_arm_roll_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_upper_arm_roll_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="blue_material"/>
         </visual>
@@ -343,7 +343,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_upper_arm_yaw_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_upper_arm_yaw_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="green_material"/>
         </visual>
@@ -368,7 +368,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_lower_arm_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_lower_arm_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="base_material"/>
         </visual>
@@ -387,7 +387,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_hand_yaw_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_hand_yaw_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="link_material"/>
         </visual>
@@ -406,7 +406,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/right_upper_arm_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/right_upper_arm_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="blue_material"/>
         </visual>
@@ -419,7 +419,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/right_upper_arm_roll_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/right_upper_arm_roll_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="green_material"/>
         </visual>
@@ -438,7 +438,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/right_upper_arm_yaw_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/right_upper_arm_yaw_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="base_material"/>
         </visual>
@@ -463,7 +463,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/right_lower_arm_pitch_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/right_lower_arm_pitch_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="link_material"/>
         </visual>
@@ -482,7 +482,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/left_hand_yaw_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/left_hand_yaw_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="blue_material"/>
         </visual>
@@ -501,7 +501,7 @@
         </inertial>
         <visual>
             <geometry>
-                <mesh filename="../../meshes/v2_0_0/imu_link.STL" scale="1 1 1"/>
+                <mesh filename="../meshes/imu_link.STL" scale="1 1 1"/>
             </geometry>
             <material name="green_material"/>
         </visual>
@@ -673,7 +673,7 @@
         <limit lower="-2.4435" upper="0.1396" effort="28.5" velocity="6.283"/>
         <dynamics armature="0.02" friction="0.01" damping="0.01"/>
     </joint>
-    <joint name="left_wrist_yaw_joint " type="revolute">
+    <joint name="left_wrist_yaw_joint" type="revolute">
         <parent link="left_lower_arm_pitch_link"/>
         <child link="left_hand_yaw_link"/>
         <origin xyz="-0.02 -0.022 -0.135" rpy="0 0 0"/>
@@ -713,7 +713,7 @@
         <limit lower="-2.4435" upper="0.1396" effort="28.5" velocity="6.283"/>
         <dynamics armature="0.02" friction="0.01" damping="0.01"/>
     </joint>
-    <joint name="right_wrist_yaw_joint " type="revolute">
+    <joint name="right_wrist_yaw_joint" type="revolute">
         <parent link="right_lower_arm_pitch_link"/>
         <child link="right_hand_yaw_link"/>
         <origin xyz="-0.02 0.022 -0.135" rpy="0 0 0"/>
