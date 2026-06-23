@@ -268,6 +268,18 @@ class GR3MiniTrace(LeggedRobot):
 
     def check_termination(self):
         cfg = self.cfg.termination
+        if cfg.disable:
+            self.time_out_buf[:] = False
+            self.reset_buf[:] = False
+            self.termination_base_contact[:] = False
+            self.termination_low_height[:] = False
+            self.termination_bad_orientation[:] = False
+            self.termination_root_pos[:] = False
+            self.termination_joint_pos[:] = False
+            self.termination_foot_slip[:] = False
+            self.termination_bad_velocity[:] = False
+            return
+
         root_pos = self.root_states[:, :3] - self.env_origins
         root_pos_err = torch.norm(root_pos - self.ref_root_pos, dim=1)
         joint_pos_rmse = torch.sqrt(torch.mean(torch.square(self.dof_pos - self.ref_dof_pos), dim=1))

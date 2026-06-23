@@ -49,6 +49,9 @@ def play(args):
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
+    if hasattr(env_cfg, "termination"):
+        env_cfg.termination.disable = args.play_disable_reset
+        print(f"Play mode: termination resets {'disabled' if args.play_disable_reset else 'enabled'}.")
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)

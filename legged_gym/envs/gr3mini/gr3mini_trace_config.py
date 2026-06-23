@@ -22,14 +22,15 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
 
     class motion:
         trace_dir = "{LEGGED_GYM_ROOT_DIR}/resources/traces"
-        file_pattern = "*.csv"
+        file_pattern = "Stop_forward_Walk_001__A017_M.csv"
         frame_dt = 1.0 / 60.0
-        random_start = True
-        root_pos_noise = [0.02, 0.02, 0.01]
-        dof_pos_noise = 0.02
-        dof_vel_noise = 0.05
+        random_start = False
+        root_pos_noise = [0.0, 0.0, 0.0]
+        dof_pos_noise = 0.0
+        dof_vel_noise = 0.0
 
     class termination:
+        disable = False
         contact_force = 1.0
         min_base_height = 0.35
         max_projected_gravity_xy = 0.75
@@ -104,7 +105,7 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
             "head": 0.3,
         }
         # Action is a residual added on top of the reference joint angle.
-        action_scale = 0.25
+        action_scale = 0.15
         decimation = 4
 
     class asset(LeggedRobotCfg.asset):
@@ -142,7 +143,7 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
             feet_air_time = 0.0
             collision = -0.2
             feet_stumble = 0.0
-            action_rate = -0.01
+            action_rate = -0.02
             stand_still = 0.0
             tracking_joint_pos = 6.0
             tracking_joint_vel = 0.5
@@ -175,8 +176,8 @@ class GR3MiniTraceCfgPPO(LeggedRobotCfgPPO):
         activation = "elu"
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
-        entropy_coef = 0.01
-        learning_rate = 3.0e-4
+        entropy_coef = 0.003
+        learning_rate = 1.0e-4
         num_learning_epochs = 5
         num_mini_batches = 4
 
