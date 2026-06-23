@@ -24,7 +24,7 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
         trace_dir = "{LEGGED_GYM_ROOT_DIR}/resources/traces"
         file_pattern = "Stop_forward_Walk_001__A017_M.csv"
         frame_dt = 1.0 / 60.0
-        random_start = False
+        random_start = True
         root_pos_noise = [0.0, 0.0, 0.0]
         dof_pos_noise = 0.0
         dof_vel_noise = 0.0

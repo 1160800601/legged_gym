@@ -1,0 +1,8 @@
+cd /home/fftai/mjq/legged_gym/legged_gym
+
+conda run --no-capture-output -n legged_gym_py38 python -u legged_gym/scripts/play.py \
+  --task=gr3mini_trace \
+  --load_run=Jun22_18-10-30_ \
+  --checkpoint=5100 \
+  --play_print_termination \
+  --play_random_start

@@ -52,6 +52,9 @@ def play(args):
     if hasattr(env_cfg, "termination"):
         env_cfg.termination.disable = args.play_disable_reset
         print(f"Play mode: termination resets {'disabled' if args.play_disable_reset else 'enabled'}.")
+    if hasattr(env_cfg, "motion") and args.play_random_start:
+        env_cfg.motion.random_start = True
+        print("Play mode: random reference start enabled.")
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -76,10 +79,26 @@ def play(args):
     camera_vel = np.array([1., 1., 0.])
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
+    termination_counts = {}
+    total_terminations = 0
 
     for i in range(10*int(env.max_episode_length)):
         actions = policy(obs.detach())
         obs, _, rews, dones, infos = env.step(actions.detach())
+        num_episodes = torch.sum(env.reset_buf).item()
+        if args.play_print_termination and num_episodes > 0 and infos["episode"]:
+            step_counts = {}
+            for key, value in infos["episode"].items():
+                if key.startswith("term_"):
+                    count = value.item() * num_episodes
+                    step_counts[key] = count
+                    termination_counts[key] = termination_counts.get(key, 0.0) + count
+            total_terminations += num_episodes
+            if step_counts:
+                reasons = ", ".join(f"{key}={count:.1f}" for key, count in sorted(step_counts.items()) if count > 0.0)
+                if not reasons:
+                    reasons = "no tracked termination reason"
+                print(f"[termination] step={i} env_resets={num_episodes} {reasons}", flush=True)
         if RECORD_FRAMES:
             if i % 2:
                 filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
@@ -110,11 +129,16 @@ def play(args):
             logger.plot_states()
         if  0 < i < stop_rew_log:
             if infos["episode"]:
-                num_episodes = torch.sum(env.reset_buf).item()
                 if num_episodes>0:
                     logger.log_rewards(infos["episode"], num_episodes)
         elif i==stop_rew_log:
             logger.print_rewards()
+    if args.play_print_termination:
+        print("Termination summary:", flush=True)
+        print(f" - total env resets: {total_terminations}", flush=True)
+        for key, count in sorted(termination_counts.items()):
+            rate = count / total_terminations if total_terminations > 0 else 0.0
+            print(f" - {key}: {count:.1f} ({rate:.1%})", flush=True)
 
 if __name__ == '__main__':
     EXPORT_POLICY = True
