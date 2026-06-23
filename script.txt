@@ -7,8 +7,8 @@ conda run --no-capture-output -n legged_gym_py38 python -u legged_gym/scripts/tr
 
 conda run --no-capture-output -n legged_gym_py38 python -u legged_gym/scripts/play.py \
   --task=gr3mini_trace \
-  --load_run=Jun23_11-43-52_ \
-  --checkpoint=7000 \
+  --load_run=Jun23_13-48-13_  \
+  --checkpoint=10000 \
   --play_disable_reset \
   --play_print_termination
 
@@ -16,6 +16,6 @@ conda run --no-capture-output -n legged_gym_py38 python -u legged_gym/scripts/tr
   --task=gr3mini_trace \
   --headless \
   --resume \
-  --load_run=Jun23_11-06-08_ \
+  --load_run=Jun23_13-48-13_ \
   --checkpoint=2000 \
   --max_iterations=5000
