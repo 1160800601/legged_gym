@@ -26,9 +26,9 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
         frame_dt = 1.0 / 50.0
         future_steps = 5
         random_start = True
-        root_pos_noise = [0.0, 0.0, 0.0]
-        dof_pos_noise = 0.0
-        dof_vel_noise = 0.0
+        root_pos_noise = [0.02, 0.02, 0.01]
+        dof_pos_noise = 0.02
+        dof_vel_noise = 0.2
 
     class termination:
         disable = False
@@ -121,8 +121,10 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
         self_collisions = 1
 
     class domain_rand(LeggedRobotCfg.domain_rand):
-        randomize_friction = False
-        randomize_base_mass = False
+        randomize_friction = True
+        friction_range = [0.8, 1.2]
+        randomize_base_mass = True
+        added_mass_range = [-0.5, 0.5]
         push_robots = False
 
     class rewards(LeggedRobotCfg.rewards):
