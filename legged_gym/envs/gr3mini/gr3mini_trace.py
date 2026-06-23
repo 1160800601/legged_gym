@@ -7,7 +7,7 @@ import os
 import numpy as np
 import torch
 from isaacgym import gymtorch
-from isaacgym.torch_utils import quat_rotate_inverse, torch_rand_float, to_torch
+from isaacgym.torch_utils import normalize, quat_conjugate, quat_mul, torch_rand_float, to_torch
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.legged_robot import LeggedRobot
@@ -60,7 +60,6 @@ class GR3MiniTrace(LeggedRobot):
             dt = cfg.motion.frame_dt
             dof_vel = np.gradient(dof_pos, dt, axis=0).astype(np.float32)
             root_lin_vel = np.gradient(root_pos, dt, axis=0).astype(np.float32)
-            root_ang_vel = np.zeros_like(root_lin_vel, dtype=np.float32)
 
             motions.append(
                 {
@@ -69,7 +68,6 @@ class GR3MiniTrace(LeggedRobot):
                     "root_pos": root_pos,
                     "root_quat": root_quat,
                     "root_lin_vel": root_lin_vel,
-                    "root_ang_vel": root_ang_vel,
                     "dof_pos": dof_pos,
                     "dof_vel": dof_vel,
                 }
@@ -85,15 +83,15 @@ class GR3MiniTrace(LeggedRobot):
         self.rigid_body_state = gymtorch.wrap_tensor(rigid_body_state).view(self.num_envs, self.num_bodies, 13)
 
         self._prepare_motion_tensors()
+        self.future_steps = int(self.cfg.motion.future_steps)
+        self.future_offsets = torch.arange(1, self.future_steps + 1, dtype=torch.long, device=self.device)
         self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
         self.motion_frame_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
         self.ref_root_pos = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.ref_root_quat = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False)
         self.ref_root_lin_vel = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
-        self.ref_root_ang_vel = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.ref_dof_pos = self.default_dof_pos.repeat(self.num_envs, 1).clone()
         self.ref_dof_vel = torch.zeros_like(self.dof_vel)
-        self.ref_projected_gravity = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.motion_phase = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self._update_reference(torch.arange(self.num_envs, device=self.device))
         self._init_episode_metrics()
@@ -140,7 +138,6 @@ class GR3MiniTrace(LeggedRobot):
         root_pos = []
         root_quat = []
         root_lin_vel = []
-        root_ang_vel = []
         dof_pos = []
         dof_vel = []
         cursor = 0
@@ -153,7 +150,6 @@ class GR3MiniTrace(LeggedRobot):
             root_pos.append(motion["root_pos"])
             root_quat.append(motion["root_quat"])
             root_lin_vel.append(motion["root_lin_vel"])
-            root_ang_vel.append(motion["root_ang_vel"])
             dof_pos.append(motion["dof_pos"][:, reorder])
             dof_vel.append(motion["dof_vel"][:, reorder])
 
@@ -162,7 +158,6 @@ class GR3MiniTrace(LeggedRobot):
         self.motion_root_pos = to_torch(np.concatenate(root_pos, axis=0), device=self.device)
         self.motion_root_quat = to_torch(np.concatenate(root_quat, axis=0), device=self.device)
         self.motion_root_lin_vel = to_torch(np.concatenate(root_lin_vel, axis=0), device=self.device)
-        self.motion_root_ang_vel = to_torch(np.concatenate(root_ang_vel, axis=0), device=self.device)
         self.motion_dof_pos = to_torch(np.concatenate(dof_pos, axis=0), device=self.device)
         self.motion_dof_vel = to_torch(np.concatenate(dof_vel, axis=0), device=self.device)
         self.num_motions = len(starts)
@@ -178,6 +173,14 @@ class GR3MiniTrace(LeggedRobot):
     def _motion_global_indices(self, env_ids):
         return self.motion_starts[self.motion_ids[env_ids]] + self.motion_frame_ids[env_ids]
 
+    def _future_motion_global_indices(self, offsets, env_ids=None):
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        frame_ids = self.motion_frame_ids[env_ids].unsqueeze(1) + offsets.unsqueeze(0)
+        lengths = self.motion_lengths[self.motion_ids[env_ids]].unsqueeze(1)
+        frame_ids = torch.minimum(frame_ids, lengths - 1)
+        return self.motion_starts[self.motion_ids[env_ids]].unsqueeze(1) + frame_ids
+
     def _update_reference(self, env_ids=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
@@ -188,16 +191,13 @@ class GR3MiniTrace(LeggedRobot):
         self.ref_root_pos[env_ids] = self.motion_root_pos[idx]
         self.ref_root_quat[env_ids] = self.motion_root_quat[idx]
         self.ref_root_lin_vel[env_ids] = self.motion_root_lin_vel[idx]
-        self.ref_root_ang_vel[env_ids] = self.motion_root_ang_vel[idx]
         self.ref_dof_pos[env_ids] = self.motion_dof_pos[idx]
         self.ref_dof_vel[env_ids] = self.motion_dof_vel[idx]
-        self.ref_projected_gravity[env_ids] = quat_rotate_inverse(self.ref_root_quat[env_ids], self.gravity_vec[env_ids])
         self.motion_phase[env_ids] = self.motion_frame_ids[env_ids].float() / self.motion_lengths[self.motion_ids[env_ids]].float()
 
     def _advance_motion(self):
-        self.motion_frame_ids += 1
         lengths = self.motion_lengths[self.motion_ids]
-        self.motion_frame_ids = torch.remainder(self.motion_frame_ids, lengths)
+        self.motion_frame_ids = torch.minimum(self.motion_frame_ids + 1, lengths - 1)
         self._update_reference()
 
     def _reset_dofs(self, env_ids):
@@ -225,7 +225,7 @@ class GR3MiniTrace(LeggedRobot):
         self.root_states[env_ids, :3] += torch_rand_float(-1.0, 1.0, (len(env_ids), 3), device=self.device) * noise
         self.root_states[env_ids, 3:7] = self.ref_root_quat[env_ids]
         self.root_states[env_ids, 7:10] = self.ref_root_lin_vel[env_ids]
-        self.root_states[env_ids, 10:13] = self.ref_root_ang_vel[env_ids]
+        self.root_states[env_ids, 10:13] = 0.0
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         self.gym.set_actor_root_state_tensor_indexed(
@@ -329,11 +329,28 @@ class GR3MiniTrace(LeggedRobot):
         torques = self.p_gains * (target - self.dof_pos) - self.d_gains * self.dof_vel
         return torch.clip(torques, -self.torque_limits, self.torque_limits)
 
+    def _future_reference_observations(self):
+        if self.future_steps == 0:
+            return torch.empty(self.num_envs, 0, device=self.device)
+
+        idx = self._future_motion_global_indices(self.future_offsets)
+        future_dof_pos = self.motion_dof_pos[idx] * self.obs_scales.dof_pos
+        future_root_pos_delta = self.motion_root_pos[idx] - self.ref_root_pos.unsqueeze(1)
+
+        future_root_quat = self.motion_root_quat[idx]
+        current_root_quat = self.ref_root_quat.unsqueeze(1).expand(-1, self.future_steps, -1)
+        future_root_quat_delta = quat_mul(quat_conjugate(current_root_quat), future_root_quat)
+        future_root_quat_delta = self._canonicalize_quat(future_root_quat_delta)
+
+        future_ref = torch.cat((future_dof_pos, future_root_pos_delta, future_root_quat_delta), dim=-1)
+        return future_ref.reshape(self.num_envs, -1)
+
     def compute_observations(self):
         phase = torch.stack(
             (torch.sin(2.0 * torch.pi * self.motion_phase), torch.cos(2.0 * torch.pi * self.motion_phase)), dim=1
         )
         root_pos_error = (self.root_states[:, :3] - self.env_origins) - self.ref_root_pos
+        future_ref = self._future_reference_observations()
         self.obs_buf = torch.cat(
             (
                 self.base_lin_vel * self.obs_scales.lin_vel,
@@ -344,6 +361,7 @@ class GR3MiniTrace(LeggedRobot):
                 (self.dof_pos - self.ref_dof_pos) * self.obs_scales.dof_pos,
                 (self.dof_vel - self.ref_dof_vel) * self.obs_scales.dof_vel,
                 self.ref_dof_pos * self.obs_scales.dof_pos,
+                future_ref,
                 self.actions,
             ),
             dim=-1,
@@ -366,9 +384,7 @@ class GR3MiniTrace(LeggedRobot):
             torch.mean(torch.square(self.dof_vel - self.ref_dof_vel), dim=1)
         )
         self.episode_metric_sums["metric_root_pos_err"] += torch.norm(root_pos - self.ref_root_pos, dim=1)
-        self.episode_metric_sums["metric_root_orientation_err"] += torch.norm(
-            self.projected_gravity - self.ref_projected_gravity, dim=1
-        )
+        self.episode_metric_sums["metric_root_orientation_err"] += self._root_orientation_error()
         self.episode_metric_sums["metric_root_lin_vel_err"] += torch.norm(
             self.base_lin_vel[:, :2] - self.ref_root_lin_vel[:, :2], dim=1
         )
@@ -382,6 +398,18 @@ class GR3MiniTrace(LeggedRobot):
         from isaacgym import gymtorch
 
         return gymtorch.unwrap_tensor(tensor)
+
+    @staticmethod
+    def _canonicalize_quat(quat):
+        quat = normalize(quat)
+        return torch.where(quat[..., 3:4] < 0.0, -quat, quat)
+
+    def _root_orientation_error(self):
+        base_quat = normalize(self.root_states[:, 3:7])
+        ref_quat = normalize(self.ref_root_quat)
+        quat_dot = torch.sum(base_quat * ref_quat, dim=1)
+        quat_dot = torch.clamp(torch.abs(quat_dot), 0.0, 1.0)
+        return 2.0 * torch.acos(quat_dot)
 
     # ------------ reward functions ------------
     def _reward_tracking_joint_pos(self):
@@ -398,8 +426,8 @@ class GR3MiniTrace(LeggedRobot):
         return torch.exp(-err / 0.05)
 
     def _reward_tracking_root_orientation(self):
-        err = torch.sum(torch.square(self.projected_gravity - self.ref_projected_gravity), dim=1)
-        return torch.exp(-err / 0.2)
+        angle = self._root_orientation_error()
+        return torch.exp(-(angle * angle) / 0.2)
 
     def _reward_tracking_root_lin_vel(self):
         err = torch.sum(torch.square(self.base_lin_vel[:, :2] - self.ref_root_lin_vel[:, :2]), dim=1)
