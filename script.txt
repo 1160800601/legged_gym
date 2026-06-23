@@ -4,3 +4,18 @@ conda run --no-capture-output -n legged_gym_py38 python -u legged_gym/scripts/tr
   --task=gr3mini_trace \
   --headless \
   --max_iterations=10000
+
+conda run --no-capture-output -n legged_gym_py38 python -u legged_gym/scripts/play.py \
+  --task=gr3mini_trace \
+  --load_run=Jun23_11-43-52_ \
+  --checkpoint=7000 \
+  --play_disable_reset \
+  --play_print_termination
+
+conda run --no-capture-output -n legged_gym_py38 python -u legged_gym/scripts/train.py \
+  --task=gr3mini_trace \
+  --headless \
+  --resume \
+  --load_run=Jun23_11-06-08_ \
+  --checkpoint=2000 \
+  --max_iterations=5000
