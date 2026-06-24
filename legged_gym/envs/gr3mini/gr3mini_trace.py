@@ -83,8 +83,8 @@ class GR3MiniTrace(LeggedRobot):
         self.rigid_body_state = gymtorch.wrap_tensor(rigid_body_state).view(self.num_envs, self.num_bodies, 13)
 
         self._prepare_motion_tensors()
-        self.future_steps = int(self.cfg.motion.future_steps)
-        self.future_offsets = torch.arange(1, self.future_steps + 1, dtype=torch.long, device=self.device)
+        self.future_offsets = self._build_future_offsets()
+        self.future_steps = int(self.future_offsets.numel())
         self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
         self.motion_frame_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
         self.ref_root_pos = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
@@ -161,6 +161,40 @@ class GR3MiniTrace(LeggedRobot):
         self.motion_dof_pos = to_torch(np.concatenate(dof_pos, axis=0), device=self.device)
         self.motion_dof_vel = to_torch(np.concatenate(dof_vel, axis=0), device=self.device)
         self.num_motions = len(starts)
+
+    def _build_future_offsets(self):
+        explicit_offsets = getattr(self.cfg.motion, "future_offsets", None)
+        if explicit_offsets is not None:
+            offsets = np.asarray(explicit_offsets, dtype=np.int64)
+        else:
+            steps = int(self.cfg.motion.future_steps)
+            if steps <= 0:
+                return torch.empty(0, dtype=torch.long, device=self.device)
+
+            start = int(getattr(self.cfg.motion, "future_offset_start", 1))
+            end = int(getattr(self.cfg.motion, "future_offset_end", steps))
+            spacing = getattr(self.cfg.motion, "future_offset_spacing", "linear")
+            if steps == 1:
+                offsets = np.asarray([start], dtype=np.int64)
+            elif spacing == "exp":
+                if start <= 0 or end <= 0:
+                    raise ValueError("Exponential future offsets require positive start and end.")
+                offsets = np.rint(np.geomspace(start, end, num=steps)).astype(np.int64)
+                offsets[0] = start
+                offsets[-1] = end
+            elif spacing == "linear":
+                offsets = np.rint(np.linspace(start, end, num=steps)).astype(np.int64)
+                offsets[0] = start
+                offsets[-1] = end
+            else:
+                raise ValueError(f"Unsupported future_offset_spacing: {spacing}")
+
+        if np.any(offsets < 1):
+            raise ValueError(f"Future offsets must be positive frame offsets, got {offsets.tolist()}")
+        for i in range(1, len(offsets)):
+            if offsets[i] <= offsets[i - 1]:
+                offsets[i] = offsets[i - 1] + 1
+        return torch.tensor(offsets, dtype=torch.long, device=self.device)
 
     def _sample_motion_frames(self, env_ids):
         self.motion_ids[env_ids] = torch.randint(self.num_motions, (len(env_ids),), device=self.device)

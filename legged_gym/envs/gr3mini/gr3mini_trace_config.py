@@ -25,6 +25,9 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
         file_pattern = "Stop_forward_Walk_001__A017_M_50hz.csv"
         frame_dt = 1.0 / 50.0
         future_steps = 5
+        future_offset_start = 1
+        future_offset_end = 25
+        future_offset_spacing = "exp"
         random_start = True
         root_pos_noise = [0.0, 0.0, 0.0]
         dof_pos_noise = 0.0
