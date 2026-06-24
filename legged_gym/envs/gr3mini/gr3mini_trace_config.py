@@ -177,7 +177,7 @@ class GR3MiniTraceCfgPPO(LeggedRobotCfgPPO):
         activation = "elu"
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
-        entropy_coef = 0.003
+        entropy_coef = 0.0
         learning_rate = 1.0e-4
         num_learning_epochs = 5
         num_mini_batches = 4
