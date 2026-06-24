@@ -6,7 +6,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobot
 class GR3MiniTraceCfg(LeggedRobotCfg):
     class env(LeggedRobotCfg.env):
         num_envs = 1024
-        num_observations = 274
+        num_observations = 146
         num_actions = 25
         episode_length_s = 6
 
@@ -24,7 +24,7 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
         trace_dir = "{LEGGED_GYM_ROOT_DIR}/resources/traces"
         file_pattern = "Stop_forward_Walk_001__A017_M_50hz.csv"
         frame_dt = 1.0 / 50.0
-        future_steps = 5
+        future_steps = 1
         random_start = True
         root_pos_noise = [0.0, 0.0, 0.0]
         dof_pos_noise = 0.0
