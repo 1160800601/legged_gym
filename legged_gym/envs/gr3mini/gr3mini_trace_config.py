@@ -112,7 +112,7 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
             "head": 0.3,
         }
         # Action is a residual added on top of the reference joint angle.
-        action_scale = 0.15
+        action_scale = 0.20
         decimation = 4
 
     class asset(LeggedRobotCfg.asset):
@@ -135,6 +135,8 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
         only_positive_rewards = False
         tracking_sigma = 0.25
         base_height_target = 0.61
+        jump_root_z_sigma = 0.01
+        jump_root_lin_vel_z_sigma = 0.25
         max_contact_force = 700.0
         class scales(LeggedRobotCfg.rewards.scales):
             termination = -10.0
@@ -143,20 +145,22 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
             lin_vel_z = 0.0
             ang_vel_xy = 0.0
             orientation = 0.0
-            torques = -2.0e-6
+            torques = -1.0e-6
             dof_vel = 0.0
             dof_acc = -1.0e-7
             base_height = 0.0
             feet_air_time = 0.0
             collision = -0.2
             feet_stumble = 0.0
-            action_rate = -0.02
+            action_rate = -0.01
             stand_still = 0.0
             tracking_joint_pos = 6.0
             tracking_joint_vel = 0.5
-            tracking_root_pos = 1.0
+            tracking_root_pos = 3.0
             tracking_root_orientation = 1.0
             tracking_root_lin_vel = 1.0
+            tracking_jump_root_z = 6.0
+            tracking_jump_root_lin_vel_z = 2.0
             alive = 0.2
 
     class normalization(LeggedRobotCfg.normalization):

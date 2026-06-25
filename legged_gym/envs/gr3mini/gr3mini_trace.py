@@ -105,6 +105,8 @@ class GR3MiniTrace(LeggedRobot):
             "metric_joint_vel_rmse",
             "metric_root_pos_err",
             "metric_root_z_err",
+            "metric_jump_root_z_err",
+            "metric_jump_root_z_shortfall",
             "metric_root_orientation_err",
             "metric_root_lin_vel_err",
             "metric_action_abs",
@@ -116,6 +118,9 @@ class GR3MiniTrace(LeggedRobot):
             name: torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
             for name in metric_names
         }
+        self.episode_jump_metric_counts = torch.zeros(
+            self.num_envs, dtype=torch.float, device=self.device, requires_grad=False
+        )
 
     def _init_termination_buffers(self):
         self.termination_base_contact = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device, requires_grad=False)
@@ -284,6 +289,15 @@ class GR3MiniTrace(LeggedRobot):
         self.motion_frame_ids = torch.minimum(self.motion_frame_ids + 1, lengths - 1)
         self._update_reference()
 
+    def _jump_window_mask(self):
+        if self.jump_window_frames.numel() == 0:
+            return torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        frame_ids = self.motion_frame_ids.unsqueeze(1)
+        return torch.any(
+            (frame_ids >= self.jump_window_frames[:, 0]) & (frame_ids <= self.jump_window_frames[:, 1]),
+            dim=1,
+        )
+
     def _reset_dofs(self, env_ids):
         self._sample_motion_frames(env_ids)
         self._update_reference(env_ids)
@@ -323,7 +337,11 @@ class GR3MiniTrace(LeggedRobot):
         episode_lengths = torch.clamp(self.episode_length_buf[env_ids].float(), min=1.0)
         metric_means = {}
         for name, metric_sum in self.episode_metric_sums.items():
-            metric_means[name] = torch.mean(metric_sum[env_ids] / episode_lengths)
+            if name.startswith("metric_jump_"):
+                jump_counts = torch.clamp(self.episode_jump_metric_counts[env_ids], min=1.0)
+                metric_means[name] = torch.mean(metric_sum[env_ids] / jump_counts)
+            else:
+                metric_means[name] = torch.mean(metric_sum[env_ids] / episode_lengths)
         termination_rates = {
             "term_base_contact": torch.mean(self.termination_base_contact[env_ids].float()),
             "term_low_height": torch.mean(self.termination_low_height[env_ids].float()),
@@ -342,6 +360,7 @@ class GR3MiniTrace(LeggedRobot):
         episode_extras.update(termination_rates)
         for metric_sum in self.episode_metric_sums.values():
             metric_sum[env_ids] = 0.0
+        self.episode_jump_metric_counts[env_ids] = 0.0
         self.termination_base_contact[env_ids] = False
         self.termination_low_height[env_ids] = False
         self.termination_bad_orientation[env_ids] = False
@@ -469,6 +488,11 @@ class GR3MiniTrace(LeggedRobot):
         )
         self.episode_metric_sums["metric_root_pos_err"] += torch.norm(root_pos - self.ref_root_pos, dim=1)
         self.episode_metric_sums["metric_root_z_err"] += root_pos[:, 2] - self.ref_root_pos[:, 2]
+        jump_mask = self._jump_window_mask().float()
+        jump_root_z_err = root_pos[:, 2] - self.ref_root_pos[:, 2]
+        self.episode_metric_sums["metric_jump_root_z_err"] += jump_mask * jump_root_z_err
+        self.episode_metric_sums["metric_jump_root_z_shortfall"] += jump_mask * torch.clamp(-jump_root_z_err, min=0.0)
+        self.episode_jump_metric_counts += jump_mask
         self.episode_metric_sums["metric_root_orientation_err"] += self._root_orientation_error()
         self.episode_metric_sums["metric_root_lin_vel_err"] += torch.norm(
             self.base_lin_vel[:, :2] - self.ref_root_lin_vel[:, :2], dim=1
@@ -517,6 +541,18 @@ class GR3MiniTrace(LeggedRobot):
     def _reward_tracking_root_lin_vel(self):
         err = torch.sum(torch.square(self.base_lin_vel[:, :2] - self.ref_root_lin_vel[:, :2]), dim=1)
         return torch.exp(-err / 0.5)
+
+    def _reward_tracking_jump_root_z(self):
+        root_z = self.root_states[:, 2] - self.env_origins[:, 2]
+        z_shortfall = torch.clamp(self.ref_root_pos[:, 2] - root_z, min=0.0)
+        reward = torch.exp(-torch.square(z_shortfall) / self.cfg.rewards.jump_root_z_sigma)
+        return self._jump_window_mask().float() * reward
+
+    def _reward_tracking_jump_root_lin_vel_z(self):
+        world_root_lin_vel_z = self.root_states[:, 9]
+        err = torch.square(world_root_lin_vel_z - self.ref_root_lin_vel[:, 2])
+        reward = torch.exp(-err / self.cfg.rewards.jump_root_lin_vel_z_sigma)
+        return self._jump_window_mask().float() * reward
 
     def _reward_alive(self):
         return torch.ones(self.num_envs, device=self.device)
