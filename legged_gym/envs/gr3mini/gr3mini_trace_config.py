@@ -22,7 +22,7 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
 
     class motion:
         trace_dir = "{LEGGED_GYM_ROOT_DIR}/resources/traces"
-        file_pattern = "Stop_forward_Walk_001__A017_M_50hz.csv"
+        file_pattern = "victory_dance_macarena_change_direction_R_loop_001__A321.csv"
         frame_dt = 1.0 / 50.0
         future_steps = 5
         future_offset_start = 1

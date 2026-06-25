@@ -164,9 +164,10 @@ def get_args():
         {"name": "--num_envs", "type": int, "help": "Number of environments to create. Overrides config file if provided."},
         {"name": "--seed", "type": int, "help": "Random seed. Overrides config file if provided."},
         {"name": "--max_iterations", "type": int, "help": "Maximum number of training iterations. Overrides config file if provided."},
-        {"name": "--play_disable_reset", "action": "store_true", "default": False, "help": "Disable termination resets while running play.py."},
+        {"name": "--play_disable_reset", "action": "store_true", "default": True, "help": "Deprecated compatibility flag. play.py disables termination resets by default."},
+        {"name": "--play_enable_reset", "action": "store_true", "default": False, "help": "Enable termination resets while running play.py."},
         {"name": "--play_print_termination", "action": "store_true", "default": False, "help": "Print termination reason statistics while running play.py."},
-        {"name": "--play_random_start", "action": "store_true", "default": False, "help": "Start each play.py reset from a random reference motion frame."},
+        {"name": "--play_random_start", "action": "store_true", "default": False, "help": "Deprecated compatibility flag. play.py starts from reference frame 0."},
     ]
     # parse arguments
     args = gymutil.parse_arguments(

@@ -42,7 +42,7 @@ import torch
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 50)
+    env_cfg.env.num_envs = min(env_cfg.env.num_envs, 25)
     env_cfg.terrain.num_rows = 5
     env_cfg.terrain.num_cols = 5
     env_cfg.terrain.curriculum = False
@@ -50,11 +50,12 @@ def play(args):
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
     if hasattr(env_cfg, "termination"):
-        env_cfg.termination.disable = args.play_disable_reset
-        print(f"Play mode: termination resets {'disabled' if args.play_disable_reset else 'enabled'}.")
-    if hasattr(env_cfg, "motion") and args.play_random_start:
-        env_cfg.motion.random_start = True
-        print("Play mode: random reference start enabled.")
+        disable_reset = not args.play_enable_reset
+        env_cfg.termination.disable = disable_reset
+        print(f"Play mode: termination resets {'disabled' if disable_reset else 'enabled'}.")
+    if hasattr(env_cfg, "motion"):
+        env_cfg.motion.random_start = False
+        print("Play mode: reference start fixed at frame 0.")
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
