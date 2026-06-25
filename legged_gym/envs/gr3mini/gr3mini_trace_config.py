@@ -29,6 +29,9 @@ class GR3MiniTraceCfg(LeggedRobotCfg):
         future_offset_end = 25
         future_offset_spacing = "exp"
         random_start = True
+        jump_windows_s = [(13.0, 14.0), (26.0, 27.0)]
+        jump_oversample_prob = 0.5
+        jump_oversample_avoid_future_clamp = True
         root_pos_noise = [0.0, 0.0, 0.0]
         dof_pos_noise = 0.0
         dof_vel_noise = 0.0

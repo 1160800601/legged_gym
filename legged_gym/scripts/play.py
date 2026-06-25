@@ -30,6 +30,7 @@
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 import os
+import time
 
 import isaacgym
 from legged_gym.envs import *
@@ -82,6 +83,8 @@ def play(args):
     img_idx = 0
     termination_counts = {}
     total_terminations = 0
+    next_frame_time = time.perf_counter()
+    print(f"Play mode: realtime playback at {1.0 / env.dt:.1f} Hz.")
 
     for i in range(10*int(env.max_episode_length)):
         actions = policy(obs.detach())
@@ -108,6 +111,13 @@ def play(args):
         if MOVE_CAMERA:
             camera_position += camera_vel * env.dt
             env.set_camera(camera_position, camera_position + camera_direction)
+
+        next_frame_time += env.dt
+        sleep_time = next_frame_time - time.perf_counter()
+        if sleep_time > 0.0:
+            time.sleep(sleep_time)
+        else:
+            next_frame_time = time.perf_counter()
 
         if i < stop_state_log:
             logger.log_states(

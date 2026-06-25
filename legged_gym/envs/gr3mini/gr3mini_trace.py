@@ -85,6 +85,8 @@ class GR3MiniTrace(LeggedRobot):
         self._prepare_motion_tensors()
         self.future_offsets = self._build_future_offsets()
         self.future_steps = int(self.future_offsets.numel())
+        self.max_future_offset = int(self.future_offsets.max().item()) if self.future_steps > 0 else 0
+        self.jump_window_frames = self._build_jump_window_frames()
         self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
         self.motion_frame_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
         self.ref_root_pos = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
@@ -102,6 +104,7 @@ class GR3MiniTrace(LeggedRobot):
             "metric_joint_pos_rmse",
             "metric_joint_vel_rmse",
             "metric_root_pos_err",
+            "metric_root_z_err",
             "metric_root_orientation_err",
             "metric_root_lin_vel_err",
             "metric_action_abs",
@@ -196,13 +199,60 @@ class GR3MiniTrace(LeggedRobot):
                 offsets[i] = offsets[i - 1] + 1
         return torch.tensor(offsets, dtype=torch.long, device=self.device)
 
+    def _build_jump_window_frames(self):
+        windows = getattr(self.cfg.motion, "jump_windows_s", [])
+        if not windows:
+            return torch.empty((0, 2), dtype=torch.long, device=self.device)
+
+        windows = np.asarray(windows, dtype=np.float32)
+        if windows.ndim != 2 or windows.shape[1] != 2:
+            raise ValueError("cfg.motion.jump_windows_s must be a sequence of (start_s, end_s) pairs.")
+        if np.any(windows[:, 1] <= windows[:, 0]):
+            raise ValueError("Each jump window end time must be greater than its start time.")
+
+        window_frames = np.rint(windows / float(self.cfg.motion.frame_dt)).astype(np.int64)
+        return torch.tensor(window_frames, dtype=torch.long, device=self.device)
+
     def _sample_motion_frames(self, env_ids):
         self.motion_ids[env_ids] = torch.randint(self.num_motions, (len(env_ids),), device=self.device)
         lengths = self.motion_lengths[self.motion_ids[env_ids]]
         if self.cfg.motion.random_start:
-            self.motion_frame_ids[env_ids] = torch.floor(torch.rand(len(env_ids), device=self.device) * lengths.float()).long()
+            frame_ids = torch.floor(torch.rand(len(env_ids), device=self.device) * lengths.float()).long()
+            frame_ids = self._oversample_jump_windows(frame_ids, lengths)
+            self.motion_frame_ids[env_ids] = frame_ids
         else:
             self.motion_frame_ids[env_ids] = 0
+
+    def _oversample_jump_windows(self, frame_ids, lengths):
+        prob = float(getattr(self.cfg.motion, "jump_oversample_prob", 0.0))
+        if prob <= 0.0 or self.jump_window_frames.numel() == 0:
+            return frame_ids
+
+        prob = min(prob, 1.0)
+        jump_mask = torch.rand(len(frame_ids), device=self.device) < prob
+        if not torch.any(jump_mask):
+            return frame_ids
+
+        jump_count = int(torch.sum(jump_mask).item())
+        window_ids = torch.randint(self.jump_window_frames.shape[0], (jump_count,), device=self.device)
+        windows = self.jump_window_frames[window_ids]
+
+        episode_steps = int(self.max_episode_length)
+        start_min = torch.clamp(windows[:, 1] - episode_steps, min=0)
+        start_max = windows[:, 0]
+
+        motion_max = lengths[jump_mask] - 1
+        if getattr(self.cfg.motion, "jump_oversample_avoid_future_clamp", True):
+            motion_max = motion_max - episode_steps - self.max_future_offset
+        motion_max = torch.clamp(motion_max, min=0)
+
+        start_max = torch.minimum(start_max, motion_max)
+        start_min = torch.minimum(start_min, start_max)
+        span = start_max - start_min + 1
+        sampled = start_min + torch.floor(torch.rand(jump_count, device=self.device) * span.float()).long()
+
+        frame_ids[jump_mask] = sampled
+        return frame_ids
 
     def _motion_global_indices(self, env_ids):
         return self.motion_starts[self.motion_ids[env_ids]] + self.motion_frame_ids[env_ids]
@@ -418,6 +468,7 @@ class GR3MiniTrace(LeggedRobot):
             torch.mean(torch.square(self.dof_vel - self.ref_dof_vel), dim=1)
         )
         self.episode_metric_sums["metric_root_pos_err"] += torch.norm(root_pos - self.ref_root_pos, dim=1)
+        self.episode_metric_sums["metric_root_z_err"] += root_pos[:, 2] - self.ref_root_pos[:, 2]
         self.episode_metric_sums["metric_root_orientation_err"] += self._root_orientation_error()
         self.episode_metric_sums["metric_root_lin_vel_err"] += torch.norm(
             self.base_lin_vel[:, :2] - self.ref_root_lin_vel[:, :2], dim=1
