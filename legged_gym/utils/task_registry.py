@@ -29,6 +29,7 @@
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
 import os
+import re
 from datetime import datetime
 from typing import Tuple
 import torch
@@ -40,6 +41,10 @@ from rsl_rl.runners import OnPolicyRunner
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 from .helpers import get_args, update_cfg_from_args, class_to_dict, get_load_path, set_seed, parse_sim_params
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
+
+def _iteration_from_checkpoint_path(path):
+    match = re.search(r"model_(\d+)\.pt$", os.path.basename(path))
+    return int(match.group(1)) if match else None
 
 class TaskRegistry():
     def __init__(self):
@@ -145,6 +150,7 @@ class TaskRegistry():
         
         train_cfg_dict = class_to_dict(train_cfg)
         runner = OnPolicyRunner(env, train_cfg_dict, log_dir, device=args.rl_device)
+        self._install_checkpoint_iteration_save(runner)
         #save resume path before creating a new log_dir
         resume = train_cfg.runner.resume
         if resume:
@@ -152,7 +158,34 @@ class TaskRegistry():
             resume_path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
             print(f"Loading model from: {resume_path}")
             runner.load(resume_path)
+            self._fix_resume_iteration_from_path(runner, resume_path)
         return runner, train_cfg
+
+    def _install_checkpoint_iteration_save(self, runner):
+        def save_with_path_iteration(path, infos=None):
+            checkpoint_iter = _iteration_from_checkpoint_path(path)
+            if checkpoint_iter is None:
+                checkpoint_iter = runner.current_learning_iteration
+            torch.save({
+                'model_state_dict': runner.alg.actor_critic.state_dict(),
+                'optimizer_state_dict': runner.alg.optimizer.state_dict(),
+                'iter': checkpoint_iter,
+                'infos': infos,
+                }, path)
+
+        runner.save = save_with_path_iteration
+
+    def _fix_resume_iteration_from_path(self, runner, resume_path):
+        checkpoint_iter = _iteration_from_checkpoint_path(resume_path)
+        if checkpoint_iter is None:
+            return
+        if runner.current_learning_iteration != checkpoint_iter:
+            print(
+                "Checkpoint iteration mismatch: "
+                f"file name says {checkpoint_iter}, checkpoint stores {runner.current_learning_iteration}. "
+                f"Using {checkpoint_iter} for resume."
+            )
+            runner.current_learning_iteration = checkpoint_iter
 
 # make global task registry
 task_registry = TaskRegistry()
