@@ -2,6 +2,7 @@
 
 import csv
 import glob
+import json
 import os
 
 import numpy as np
@@ -11,6 +12,35 @@ from isaacgym.torch_utils import normalize, quat_conjugate, quat_mul, torch_rand
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.legged_robot import LeggedRobot
+
+
+GR3MINI_MOTION_JOINT_NAMES = [
+    "left_hip_pitch_joint",
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_knee_pitch_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_hip_pitch_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_knee_pitch_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint",
+    "waist_yaw_joint",
+    "head_yaw_joint",
+    "head_pitch_joint",
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_pitch_joint",
+    "left_wrist_yaw_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_pitch_joint",
+    "right_wrist_yaw_joint",
+]
 
 
 class GR3MiniTrace(LeggedRobot):
@@ -32,48 +62,73 @@ class GR3MiniTrace(LeggedRobot):
             raise FileNotFoundError(f"No motion trace files matched: {pattern}")
 
         motions = []
-        expected_header = None
+        expected_joint_names = None
         for path in files:
-            with open(path, newline="") as f:
-                reader = csv.DictReader(f)
-                header = reader.fieldnames
-                if expected_header is None:
-                    expected_header = header
-                elif header != expected_header:
-                    raise ValueError(f"CSV header mismatch in {path}")
+            if path.endswith(".json"):
+                motion = self._load_json_motion_file(path, cfg)
+            else:
+                motion = self._load_csv_motion_file(path, cfg)
 
-                rows = list(reader)
-            if len(rows) < 2:
-                raise ValueError(f"Motion trace must have at least two frames: {path}")
+            if expected_joint_names is None:
+                expected_joint_names = motion["joint_names"]
+            elif motion["joint_names"] != expected_joint_names:
+                raise ValueError(f"Motion joint name mismatch in {path}")
 
-            joint_names = [name[:-4] for name in header if name.endswith("_dof")]
-            root_pos = np.array(
-                [[float(r["root_translateX"]), float(r["root_translateY"]), float(r["root_translateZ"])] for r in rows],
-                dtype=np.float32,
-            )
-            # CSV stores WXYZ, Isaac Gym root states use XYZW.
-            root_quat = np.array(
-                [[float(r["root_quatX"]), float(r["root_quatY"]), float(r["root_quatZ"]), float(r["root_quatW"])] for r in rows],
-                dtype=np.float32,
-            )
-            dof_pos = np.array([[float(r[f"{name}_dof"]) for name in joint_names] for r in rows], dtype=np.float32)
-            dt = cfg.motion.frame_dt
-            dof_vel = np.gradient(dof_pos, dt, axis=0).astype(np.float32)
-            root_lin_vel = np.gradient(root_pos, dt, axis=0).astype(np.float32)
-
-            motions.append(
-                {
-                    "path": path,
-                    "joint_names": joint_names,
-                    "root_pos": root_pos,
-                    "root_quat": root_quat,
-                    "root_lin_vel": root_lin_vel,
-                    "dof_pos": dof_pos,
-                    "dof_vel": dof_vel,
-                }
-            )
+            motions.append(motion)
 
         return motions
+
+    def _load_csv_motion_file(self, path, cfg):
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            header = reader.fieldnames
+            rows = list(reader)
+        if len(rows) < 2:
+            raise ValueError(f"Motion trace must have at least two frames: {path}")
+
+        joint_names = [name[:-4] for name in header if name.endswith("_dof")]
+        root_pos = np.array(
+            [[float(r["root_translateX"]), float(r["root_translateY"]), float(r["root_translateZ"])] for r in rows],
+            dtype=np.float32,
+        )
+        # CSV stores WXYZ, Isaac Gym root states use XYZW.
+        root_quat = np.array(
+            [[float(r["root_quatX"]), float(r["root_quatY"]), float(r["root_quatZ"]), float(r["root_quatW"])] for r in rows],
+            dtype=np.float32,
+        )
+        dof_pos = np.array([[float(r[f"{name}_dof"]) for name in joint_names] for r in rows], dtype=np.float32)
+        return self._build_motion_dict(path, joint_names, root_pos, root_quat, dof_pos, cfg.motion.frame_dt)
+
+    def _load_json_motion_file(self, path, cfg):
+        with open(path) as f:
+            payload = json.load(f)
+
+        joint_names = payload.get("joint_names", GR3MINI_MOTION_JOINT_NAMES)
+        root_pos = np.asarray(payload["root_pos_w"], dtype=np.float32)
+        root_quat = np.asarray(payload["root_rot_w"], dtype=np.float32)
+        dof_pos = np.asarray(payload["joint_pos"], dtype=np.float32)
+        if dof_pos.shape[1] != len(joint_names):
+            raise ValueError(
+                f"Motion joint count mismatch in {path}: got {dof_pos.shape[1]}, expected {len(joint_names)}"
+            )
+        if len(root_pos) < 2:
+            raise ValueError(f"Motion trace must have at least two frames: {path}")
+
+        dt = 1.0 / float(payload.get("fps", 1.0 / cfg.motion.frame_dt))
+        return self._build_motion_dict(path, joint_names, root_pos, root_quat, dof_pos, dt)
+
+    def _build_motion_dict(self, path, joint_names, root_pos, root_quat, dof_pos, dt):
+        dof_vel = np.gradient(dof_pos, dt, axis=0).astype(np.float32)
+        root_lin_vel = np.gradient(root_pos, dt, axis=0).astype(np.float32)
+        return {
+            "path": path,
+            "joint_names": list(joint_names),
+            "root_pos": root_pos,
+            "root_quat": root_quat,
+            "root_lin_vel": root_lin_vel,
+            "dof_pos": dof_pos,
+            "dof_vel": dof_vel,
+        }
 
     def _init_buffers(self):
         super()._init_buffers()

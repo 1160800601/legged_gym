@@ -130,6 +130,8 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
         # num envs
         if args.num_envs is not None:
             env_cfg.env.num_envs = args.num_envs
+        if hasattr(env_cfg, "motion") and args.motion_file_pattern is not None:
+            env_cfg.motion.file_pattern = args.motion_file_pattern
     if cfg_train is not None:
         if args.seed is not None:
             cfg_train.seed = args.seed
@@ -162,6 +164,7 @@ def get_args():
         {"name": "--horovod", "action": "store_true", "default": False, "help": "Use horovod for multi-gpu training"},
         {"name": "--rl_device", "type": str, "default": "cuda:0", "help": 'Device used by the RL algorithm, (cpu, gpu, cuda:0, cuda:1 etc..)'},
         {"name": "--num_envs", "type": int, "help": "Number of environments to create. Overrides config file if provided."},
+        {"name": "--motion_file_pattern", "type": str, "help": "Motion file glob relative to cfg.motion.trace_dir. Overrides config file if provided."},
         {"name": "--seed", "type": int, "help": "Random seed. Overrides config file if provided."},
         {"name": "--max_iterations", "type": int, "help": "Maximum number of training iterations. Overrides config file if provided."},
         {"name": "--play_disable_reset", "action": "store_true", "default": False, "help": "Disable termination resets while running play.py."},

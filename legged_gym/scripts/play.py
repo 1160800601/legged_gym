@@ -52,6 +52,9 @@ def play(args):
     if hasattr(env_cfg, "termination"):
         env_cfg.termination.disable = args.play_disable_reset
         print(f"Play mode: termination resets {'disabled' if args.play_disable_reset else 'enabled'}.")
+    if hasattr(env_cfg, "motion") and args.motion_file_pattern is None and hasattr(env_cfg.motion, "test_file_pattern"):
+        env_cfg.motion.file_pattern = env_cfg.motion.test_file_pattern
+        print(f"Play mode: using test motion pattern {env_cfg.motion.file_pattern}.")
     if hasattr(env_cfg, "motion") and args.play_random_start:
         env_cfg.motion.random_start = True
         print("Play mode: random reference start enabled.")
